@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const ecowaterDateSchema = z.string().transform((val, ctx) => {
+export const ecowaterDateSchema = z.string().transform((val, ctx) => {
   const dateSplitted = val.split('/')
   if (dateSplitted.length !== 3) {
     ctx.addIssue({
@@ -13,7 +13,8 @@ const ecowaterDateSchema = z.string().transform((val, ctx) => {
   const date = new Date()
   const dayParsed = z.coerce.number().min(1).max(31).parse(dateSplitted[0])
   date.setDate(dayParsed)
-  const monthParsed = z.coerce.number().min(1).max(12).parse(dateSplitted[1])
+  const monthParsed =
+    z.coerce.number().min(1).max(12).parse(dateSplitted[1]) - 1
   date.setMonth(monthParsed)
   const fullYearParsed = z.coerce.number().parse(dateSplitted[2])
   date.setFullYear(fullYearParsed)
@@ -21,6 +22,42 @@ const ecowaterDateSchema = z.string().transform((val, ctx) => {
 
   return date
 })
+
+export const ecowaterNextRechargeIsScheduledSchema = z
+  .string()
+  .transform((val, ctx) => {
+    const nextRechargeRegex = new RegExp(
+      /device-info-nextRecharge'\)\.html\('(?:(Not Scheduled|.+))'/gm
+    )
+    const nextRechargeRegexResults = nextRechargeRegex.exec(val)
+    if (!nextRechargeRegexResults || nextRechargeRegexResults.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Returned HTML snipped is invalid',
+      })
+
+      return z.NEVER
+    }
+    return nextRechargeRegexResults[1] !== 'Not Scheduled'
+  })
+
+export const ecowaterLastRechargeDateSchema = z
+  .string()
+  .transform((val, ctx) => {
+    const lastRechargeRegex = new RegExp(
+      /device-info-lastRecharge'\).html\('(.+)'\)/gm
+    )
+    const lastRechargeRegexResults = lastRechargeRegex.exec(val)
+    if (!lastRechargeRegexResults || lastRechargeRegexResults.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Returned HTML snipped is invalid',
+      })
+
+      return z.NEVER
+    }
+    return ecowaterDateSchema.parse(lastRechargeRegexResults[1])
+  })
 
 export const ecowaterDataSchema = z.object({
   online: z.boolean(),
@@ -52,35 +89,9 @@ export const ecowaterDataSchema = z.object({
   rechargeEnabled: z.boolean(),
   /* recharge scheduled */
   recharge: z.string().transform((val, ctx) => {
-    const nextRechargeRegex = new RegExp(
-      /device-info-nextRecharge'\)\.html\('(?:(Not Scheduled|.+))'/gm
-    )
-    const nextRechargeRegexResults = nextRechargeRegex.exec(val)
-    if (!nextRechargeRegexResults || nextRechargeRegexResults.length < 2) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Returned HTML snipped is invalid',
-      })
-
-      return z.NEVER
-    }
     const nextRechargeIsScheduled =
-      nextRechargeRegexResults[1] !== 'Not Scheduled'
-    const lastRechargeRegex = new RegExp(
-      /device-info-lastRecharge'\).html\('(.+)'\)/gm
-    )
-    const lastRechargeRegexResults = lastRechargeRegex.exec(val)
-    if (!lastRechargeRegexResults || lastRechargeRegexResults.length < 2) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Returned HTML snipped is invalid',
-      })
-
-      return z.NEVER
-    }
-    const lastRechargeDate = ecowaterDateSchema.parse(
-      lastRechargeRegexResults[1]
-    )
+      ecowaterNextRechargeIsScheduledSchema.parse(val)
+    const lastRechargeDate = ecowaterLastRechargeDateSchema.parse(val)
 
     return {
       nextRechargeIsScheduled,
